@@ -1,0 +1,52 @@
+
+from core.database import last_home, last_away
+
+def home_summary(team, league=None, n=10):
+    df = last_home(team, league, n)
+    if df.empty:
+        return {"games":0, "gf":0, "ga":0, "btts":0, "over25":0, "form":50}
+    points = []
+    for _, r in df.iterrows():
+        if r.home_goals > r.away_goals: points.append(3)
+        elif r.home_goals == r.away_goals: points.append(1)
+        else: points.append(0)
+    return {
+        "games": len(df),
+        "gf": float(df.home_goals.mean()),
+        "ga": float(df.away_goals.mean()),
+        "btts": float(((df.home_goals>0)&(df.away_goals>0)).mean()),
+        "over25": float(((df.home_goals+df.away_goals)>2.5).mean()),
+        "form": 100*sum(points)/(3*len(points)) if points else 50,
+    }
+
+def away_summary(team, league=None, n=10):
+    df = last_away(team, league, n)
+    if df.empty:
+        return {"games":0, "gf":0, "ga":0, "btts":0, "over25":0, "form":50}
+    points = []
+    for _, r in df.iterrows():
+        if r.away_goals > r.home_goals: points.append(3)
+        elif r.away_goals == r.home_goals: points.append(1)
+        else: points.append(0)
+    return {
+        "games": len(df),
+        "gf": float(df.away_goals.mean()),
+        "ga": float(df.home_goals.mean()),
+        "btts": float(((df.home_goals>0)&(df.away_goals>0)).mean()),
+        "over25": float(((df.home_goals+df.away_goals)>2.5).mean()),
+        "form": 100*sum(points)/(3*len(points)) if points else 50,
+    }
+
+def estimate_lambdas(home_team, away_team, league=None, adj_home=0, adj_away=0):
+    hs = home_summary(home_team, league)
+    aw = away_summary(away_team, league)
+    if hs["games"] == 0 or aw["games"] == 0:
+        lh, la = 1.25, 1.05
+        warning = "Sem dados suficientes. Usando lambdas padrão."
+    else:
+        lh = hs["gf"]*0.55 + aw["ga"]*0.45
+        la = aw["gf"]*0.55 + hs["ga"]*0.45
+        warning = ""
+    lh = max(0.10, min(4.00, lh + adj_home))
+    la = max(0.10, min(4.00, la + adj_away))
+    return lh, la, hs, aw, warning

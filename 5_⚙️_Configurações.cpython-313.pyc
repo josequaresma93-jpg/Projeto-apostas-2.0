@@ -1,0 +1,31 @@
+
+import streamlit as st
+import pandas as pd
+from core.database import get_bets, metrics
+
+st.title("📊 Dashboard")
+
+df = get_bets()
+if df.empty:
+    st.info("Sem apostas para dashboard.")
+else:
+    m = metrics(df)
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("ROI", f'{m["roi"]:.2%}')
+    c2.metric("Lucro", f'R$ {m["profit"]:.2f}')
+    c3.metric("Apostas", m["bets"])
+    c4.metric("% Acerto", f'{m["hit_rate"]:.2%}')
+
+    settled = df[df["result"].isin(["win","half_win","push","half_loss","loss"])]
+    if not settled.empty:
+        by_market = settled.groupby("market", as_index=False).agg(
+            apostas=("id","count"),
+            stake=("stake","sum"),
+            lucro=("profit","sum")
+        )
+        by_market["roi"] = by_market["lucro"] / by_market["stake"]
+        st.subheader("Resultado por mercado")
+        st.dataframe(by_market.style.format({"stake":"R$ {:.2f}", "lucro":"R$ {:.2f}", "roi":"{:.2%}"}), use_container_width=True)
+
+        st.subheader("Lucro por mercado")
+        st.bar_chart(by_market.set_index("market")["lucro"])

@@ -1,0 +1,42 @@
+
+import pandas as pd
+
+def kelly(prob, odd):
+    if odd <= 1:
+        return 0.0
+    b = odd - 1
+    q = 1 - prob
+    return max(0.0, (b*prob - q) / b)
+
+def grade_confidence(score):
+    if score >= 90: return "A+"
+    if score >= 80: return "A"
+    if score >= 70: return "B"
+    return "C"
+
+def compare_odds(markets, odds_df, min_edge=0.06, bankroll=1000, confidence=75):
+    if odds_df is None or odds_df.empty:
+        return pd.DataFrame()
+    if not {"market", "odd"}.issubset(odds_df.columns):
+        return pd.DataFrame()
+
+    df = odds_df.merge(markets, on="market", how="inner")
+    if df.empty:
+        return df
+
+    df["edge"] = df["odd"] / df["fair_odd"] - 1
+    df["ev"] = df["prob"] * df["odd"] - 1
+    df["kelly"] = df.apply(lambda r: kelly(r["prob"], r["odd"]), axis=1)
+    df["stake"] = (df["kelly"] * 0.25 * bankroll).clip(0, bankroll*0.03)
+    df["confidence"] = confidence
+    df["grade"] = grade_confidence(confidence)
+
+    def decision(r):
+        if r.edge >= min_edge and r.ev > 0 and confidence >= 70:
+            return "🟢 ENTRADA FORTE"
+        if r.edge > 0 and r.ev > 0:
+            return "🟡 VALOR LEVE"
+        return "🔴 PASSAR"
+
+    df["decision"] = df.apply(decision, axis=1)
+    return df.sort_values("edge", ascending=False).reset_index(drop=True)
