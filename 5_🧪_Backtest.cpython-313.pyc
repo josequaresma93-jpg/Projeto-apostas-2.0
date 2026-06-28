@@ -1,0 +1,33 @@
+
+import pandas as pd
+import streamlit as st
+from core.database import get_matches
+from core.team_strength import estimate_lambdas
+from core.markets import calc_markets
+
+st.title("🧪 Backtest Básico")
+league = st.text_input("Liga", "Série B")
+market = st.selectbox("Mercado", ["BTTS Sim", "Over 1.5", "Over 2.5"])
+threshold = st.slider("Entrar quando probabilidade acima de", 0.0, 1.0, 0.60, 0.01)
+df = get_matches(league)
+if df.empty:
+    st.info("Cadastre jogos primeiro.")
+else:
+    rows = []
+    for _, r in df.sort_values("match_date").iterrows():
+        lh, la, hs, aw, warning = estimate_lambdas(r.home_team, r.away_team, r.league, before_date=r.match_date)
+        markets = calc_markets(lh, la)
+        prob = markets.loc[markets.market == market, "prob"].iloc[0]
+        if market == "BTTS Sim":
+            hit = int(r.home_goals > 0 and r.away_goals > 0)
+        else:
+            line = float(market.split()[1])
+            hit = int((r.home_goals + r.away_goals) > line)
+        entry = prob >= threshold
+        rows.append({"data": r.match_date, "jogo": f"{r.home_team} x {r.away_team}", "placar": f"{r.home_goals}-{r.away_goals}", "prob": prob, "entrada": entry, "green": bool(hit) if entry else None})
+    bt = pd.DataFrame(rows)
+    st.dataframe(bt.style.format({"prob":"{:.2%}"}), use_container_width=True)
+    entries = bt[bt.entrada == True]
+    if not entries.empty:
+        st.metric("Entradas", len(entries))
+        st.metric("Acerto", f"{entries.green.mean():.2%}")

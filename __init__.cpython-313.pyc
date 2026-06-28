@@ -1,37 +1,40 @@
 
 import pandas as pd
+from core.poisson import score_matrix, fair_odd
 
-def kelly(prob, odd):
-    if odd <= 1: return 0.0
-    b = odd - 1
-    q = 1 - prob
-    return max(0.0, (b*prob - q) / b)
+def calc_markets(lambda_home, lambda_away):
+    df = score_matrix(lambda_home, lambda_away)
+    margin = df.home_goals - df.away_goals
+    total_goals = df.home_goals + df.away_goals
 
-def grade_confidence(score):
-    if score >= 90: return "A+"
-    if score >= 80: return "A"
-    if score >= 70: return "B"
-    return "C"
+    p_home = df.loc[margin > 0, "prob"].sum()
+    p_draw = df.loc[margin == 0, "prob"].sum()
+    p_away = df.loc[margin < 0, "prob"].sum()
+    btts = df.loc[(df.home_goals > 0) & (df.away_goals > 0), "prob"].sum()
 
-def context_confidence(hs, aw, manual=75):
-    data_score = min(100, (hs["games"] + aw["games"]) * 5)
-    form_score = (hs["form"] + aw["form"]) / 2
-    return max(0, min(100, 0.45*manual + 0.35*data_score + 0.20*form_score))
+    markets = [
+        {"market": "Casa ML", "prob": p_home},
+        {"market": "Empate", "prob": p_draw},
+        {"market": "Fora ML", "prob": p_away},
+        {"market": "Casa DNB", "prob": p_home + 0.5*p_draw},
+        {"market": "Fora DNB", "prob": p_away + 0.5*p_draw},
+        {"market": "BTTS Sim", "prob": btts},
+        {"market": "BTTS Não", "prob": 1-btts},
+    ]
 
-def compare_odds(markets, odds_df, min_edge=0.06, bankroll=1000, confidence=75, explanation=""):
-    if odds_df is None or odds_df.empty:
-        return pd.DataFrame()
-    if not {"market","odd"}.issubset(odds_df.columns):
-        return pd.DataFrame()
-    df = odds_df.merge(markets, on="market", how="inner")
-    if df.empty:
-        return df
-    df["edge"] = df["odd"] / df["fair_odd"] - 1
-    df["ev"] = df["prob"] * df["odd"] - 1
-    df["kelly"] = df.apply(lambda r: kelly(r["prob"], r["odd"]), axis=1)
-    df["stake"] = (df["kelly"] * 0.25 * bankroll).clip(0, bankroll*0.03)
-    df["confidence"] = confidence
-    df["grade"] = grade_confidence(confidence)
-    df["explanation"] = explanation
-    df["decision"] = df.apply(lambda r: "🟢 ENTRADA FORTE" if r.edge >= min_edge and r.ev > 0 and confidence >= 70 else ("🟡 VALOR LEVE" if r.edge > 0 and r.ev > 0 else "🔴 PASSAR"), axis=1)
-    return df.sort_values("edge", ascending=False).reset_index(drop=True)
+    for line in [0.5,1.5,2.5,3.5,4.5,5.5]:
+        over = df.loc[total_goals > line, "prob"].sum()
+        markets.append({"market": f"Over {line}", "prob": over})
+        markets.append({"market": f"Under {line}", "prob": 1-over})
+
+    for line in [-2.5,-2.0,-1.5,-1.0,-0.5,0,0.5,1.0,1.5,2.0,2.5]:
+        wh = df.loc[(margin + line) > 0, "prob"].sum()
+        ph = df.loc[(margin + line) == 0, "prob"].sum()
+        wa = df.loc[(-margin + line) > 0, "prob"].sum()
+        pa = df.loc[(-margin + line) == 0, "prob"].sum()
+        markets.append({"market": f"Casa AH {line:+}", "prob": wh + 0.5*ph})
+        markets.append({"market": f"Fora AH {line:+}", "prob": wa + 0.5*pa})
+
+    out = pd.DataFrame(markets)
+    out["fair_odd"] = out["prob"].apply(fair_odd)
+    return out.sort_values("prob", ascending=False).reset_index(drop=True)
