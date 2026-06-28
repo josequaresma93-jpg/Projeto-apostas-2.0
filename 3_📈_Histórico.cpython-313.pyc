@@ -1,0 +1,55 @@
+
+import pandas as pd
+import streamlit as st
+from core.db import get_teams, save_bet
+from core.model import estimate_lambdas, markets, compare
+
+st.title("🔍 Scanner")
+
+league = st.text_input("Liga", "Série B")
+teams = get_teams(league)
+
+if not teams:
+    st.warning("Cadastre jogos ou carregue dados de exemplo na página inicial.")
+    st.stop()
+
+c1, c2, c3, c4 = st.columns(4)
+home = c1.selectbox("Mandante", teams)
+away = c2.selectbox("Visitante", teams, index=min(1, len(teams)-1))
+bankroll = c3.number_input("Banca", 100.0, 1000000.0, 1000.0, 100.0)
+min_edge = c4.number_input("Edge mínimo", 0.0, 0.5, 0.06, 0.01)
+
+lh, la, warning = estimate_lambdas(home, away, league)
+if warning:
+    st.warning(warning)
+
+m1, m2 = st.columns(2)
+m1.metric("Lambda Casa", f"{lh:.2f}")
+m2.metric("Lambda Fora", f"{la:.2f}")
+
+market_df = markets(lh, la)
+main_markets = ["BTTS Sim","BTTS Não","Over 1.5","Under 2.5","Over 2.5","Casa ML","Empate","Fora ML","Casa DNB","Fora DNB","Casa AH -0.5","Casa AH +0","Fora AH +0.5","Fora AH +0"]
+rows = []
+cols = st.columns(4)
+for i, market in enumerate(main_markets):
+    with cols[i % 4]:
+        odd = st.number_input(market, 0.0, 50.0, 0.0, 0.01, key=market)
+        if odd > 0:
+            rows.append({"market":market, "odd":odd})
+
+odds_df = pd.DataFrame(rows, columns=["market", "odd"])
+radar = compare(market_df, odds_df, bankroll, min_edge)
+
+st.subheader("Radar")
+if radar.empty:
+    st.info("Digite pelo menos uma odd.")
+else:
+    st.dataframe(radar[["market","prob","fair_odd","odd","edge","ev","kelly","stake","decision"]].style.format({
+        "prob":"{:.2%}", "fair_odd":"{:.2f}", "odd":"{:.2f}", "edge":"{:.2%}", "ev":"{:.2%}", "kelly":"{:.2%}", "stake":"R$ {:.2f}"
+    }), use_container_width=True)
+    selected = st.selectbox("Salvar mercado", radar["market"].tolist())
+    r = radar[radar["market"] == selected].iloc[0]
+    stake = st.number_input("Stake", 1.0, 100000.0, float(max(1, round(r["stake"],2))), 1.0)
+    if st.button("Salvar aposta"):
+        save_bet(league, f"{home} x {away}", r["market"], float(r["odd"]), float(r["fair_odd"]), float(r["prob"]), float(r["edge"]), float(r["ev"]), float(r["kelly"]), float(stake))
+        st.success("Aposta salva.")

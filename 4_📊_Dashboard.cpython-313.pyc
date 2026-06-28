@@ -1,21 +1,26 @@
 
+from datetime import date
 import streamlit as st
-from core.database import get_bets, metrics
+from core.db import add_match, get_matches, seed_demo
 
-st.title("📊 Dashboard")
-df = get_bets()
-if df.empty:
-    st.info("Sem apostas para dashboard.")
-else:
-    m = metrics(df)
-    c1,c2,c3,c4 = st.columns(4)
-    c1.metric("ROI", f'{m["roi"]:.2%}')
-    c2.metric("Lucro", f'R$ {m["profit"]:.2f}')
-    c3.metric("Apostas", m["bets"])
-    c4.metric("% Acerto", f'{m["hit_rate"]:.2%}')
-    settled = df[df["result"].isin(["win","half_win","push","half_loss","loss"])]
-    if not settled.empty:
-        by_market = settled.groupby("market", as_index=False).agg(apostas=("id","count"), stake=("stake","sum"), lucro=("profit","sum"))
-        by_market["roi"] = by_market["lucro"] / by_market["stake"]
-        st.dataframe(by_market.style.format({"stake":"R$ {:.2f}", "lucro":"R$ {:.2f}", "roi":"{:.2%}"}), use_container_width=True)
-        st.bar_chart(by_market.set_index("market")["lucro"])
+st.title("📚 Banco de Jogos")
+
+with st.form("jogo"):
+    c1,c2,c3 = st.columns(3)
+    match_date = c1.date_input("Data", value=date.today())
+    league = c2.text_input("Liga", "Série B")
+    home = c3.text_input("Mandante", "Vila Nova")
+    c4,c5,c6 = st.columns(3)
+    away = c4.text_input("Visitante", "Novorizontino")
+    hg = c5.number_input("Gols mandante", 0, 20, 1)
+    ag = c6.number_input("Gols visitante", 0, 20, 1)
+    if st.form_submit_button("Salvar"):
+        add_match(match_date, league, home, away, hg, ag)
+        st.success("Jogo salvo.")
+
+if st.button("Carregar exemplo"):
+    seed_demo()
+    st.success("Exemplo carregado.")
+
+league_filter = st.text_input("Filtrar liga", "Série B")
+st.dataframe(get_matches(league_filter), use_container_width=True)
