@@ -1,0 +1,34 @@
+
+from datetime import date
+import streamlit as st
+from core.database import add_match, import_matches_csv, get_matches
+from services.seed import seed_sample_data
+
+st.title("📚 Banco de Jogos")
+with st.form("novo_jogo"):
+    c1,c2,c3 = st.columns(3)
+    match_date = c1.date_input("Data", value=date.today())
+    league = c2.text_input("Liga", "Série B")
+    home = c3.text_input("Mandante", "Vila Nova")
+    c4,c5,c6 = st.columns(3)
+    away = c4.text_input("Visitante", "Novorizontino")
+    hg = c5.number_input("Gols mandante", 0, 20, 1)
+    ag = c6.number_input("Gols visitante", 0, 20, 1)
+    c7,c8 = st.columns(2)
+    xgh = c7.number_input("xG mandante opcional", 0.0, 10.0, 0.0, 0.05)
+    xga = c8.number_input("xG visitante opcional", 0.0, 10.0, 0.0, 0.05)
+    if st.form_submit_button("Salvar jogo"):
+        add_match(match_date, league, home, away, hg, ag, xgh, xga)
+        st.success("Jogo salvo.")
+
+uploaded = st.file_uploader("Importar CSV", type=["csv"])
+if uploaded and st.button("Importar"):
+    try:
+        st.success(f"{import_matches_csv(uploaded)} jogos importados.")
+    except Exception as e:
+        st.error(str(e))
+if st.button("Carregar dados de exemplo"):
+    seed_sample_data()
+    st.success("Dados carregados.")
+league_filter = st.text_input("Filtrar liga", "Série B")
+st.dataframe(get_matches(league_filter), use_container_width=True)

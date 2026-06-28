@@ -1,0 +1,24 @@
+
+import streamlit as st
+from core.database import get_bets, update_bet_result, metrics
+
+st.title("📈 Histórico / ROI")
+df = get_bets()
+if df.empty:
+    st.info("Nenhuma aposta salva ainda.")
+else:
+    m = metrics(df)
+    c1,c2,c3,c4,c5,c6 = st.columns(6)
+    c1.metric("Apostas", m["bets"])
+    c2.metric("Stake", f'R$ {m["stake"]:.2f}')
+    c3.metric("Lucro", f'R$ {m["profit"]:.2f}')
+    c4.metric("ROI/Yield", f'{m["roi"]:.2%}')
+    c5.metric("% acerto", f'{m["hit_rate"]:.2%}')
+    c6.metric("CLV médio", f'{m["avg_clv"]:.2%}')
+    st.dataframe(df, use_container_width=True)
+    bet_id = st.number_input("ID", min_value=1, step=1)
+    result = st.selectbox("Resultado", ["pending","win","half_win","push","half_loss","loss"])
+    closing = st.number_input("Odd fechamento", 0.0, 50.0, 0.0, 0.01)
+    if st.button("Atualizar"):
+        update_bet_result(bet_id, result, closing if closing > 0 else None)
+        st.success("Resultado atualizado.")

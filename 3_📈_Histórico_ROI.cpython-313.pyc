@@ -1,41 +1,33 @@
 
-from datetime import date
+import pandas as pd
 import streamlit as st
-from core.database import add_match, import_matches_csv, get_matches
-from services.seed import seed_sample_data
+from core.database import get_matches
+from core.team_strength import estimate_lambdas
+from core.markets import calc_markets
 
-st.title("📚 Banco de Jogos")
-
-with st.form("novo_jogo"):
-    c1,c2,c3 = st.columns(3)
-    match_date = c1.date_input("Data", value=date.today())
-    league = c2.text_input("Liga", "Série B")
-    home = c3.text_input("Mandante", "Vila Nova")
-
-    c4,c5,c6 = st.columns(3)
-    away = c4.text_input("Visitante", "Novorizontino")
-    hg = c5.number_input("Gols mandante", 0, 20, 1)
-    ag = c6.number_input("Gols visitante", 0, 20, 1)
-
-    c7,c8 = st.columns(2)
-    xgh = c7.number_input("xG mandante opcional", 0.0, 10.0, 0.0, 0.05)
-    xga = c8.number_input("xG visitante opcional", 0.0, 10.0, 0.0, 0.05)
-
-    if st.form_submit_button("Salvar jogo"):
-        add_match(match_date, league, home, away, hg, ag, xgh, xga)
-        st.success("Jogo salvo.")
-
-uploaded = st.file_uploader("Importar CSV", type=["csv"])
-if uploaded and st.button("Importar"):
-    try:
-        count = import_matches_csv(uploaded)
-        st.success(f"{count} jogos importados.")
-    except Exception as e:
-        st.error(str(e))
-
-if st.button("Carregar dados de exemplo"):
-    seed_sample_data()
-    st.success("Dados de exemplo carregados.")
-
-league_filter = st.text_input("Filtrar liga", "Série B")
-st.dataframe(get_matches(league_filter), use_container_width=True)
+st.title("🧪 Backtest Básico")
+league = st.text_input("Liga", "Série B")
+market = st.selectbox("Mercado", ["BTTS Sim", "Over 1.5", "Over 2.5"])
+threshold = st.slider("Entrar quando probabilidade acima de", 0.0, 1.0, 0.60, 0.01)
+df = get_matches(league)
+if df.empty:
+    st.info("Cadastre jogos primeiro.")
+else:
+    rows = []
+    for _, r in df.sort_values("match_date").iterrows():
+        lh, la, hs, aw, warning = estimate_lambdas(r.home_team, r.away_team, r.league, before_date=r.match_date)
+        markets = calc_markets(lh, la)
+        prob = markets.loc[markets.market == market, "prob"].iloc[0]
+        if market == "BTTS Sim":
+            hit = int(r.home_goals > 0 and r.away_goals > 0)
+        else:
+            line = float(market.split()[1])
+            hit = int((r.home_goals + r.away_goals) > line)
+        entry = prob >= threshold
+        rows.append({"data": r.match_date, "jogo": f"{r.home_team} x {r.away_team}", "placar": f"{r.home_goals}-{r.away_goals}", "prob": prob, "entrada": entry, "green": bool(hit) if entry else None})
+    bt = pd.DataFrame(rows)
+    st.dataframe(bt.style.format({"prob":"{:.2%}"}), use_container_width=True)
+    entries = bt[bt.entrada == True]
+    if not entries.empty:
+        st.metric("Entradas", len(entries))
+        st.metric("Acerto", f"{entries.green.mean():.2%}")

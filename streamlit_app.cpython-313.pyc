@@ -1,9 +1,4 @@
-[server]
-headless = true
-
-[browser]
-gatherUsageStats = false
-
-[theme]
-base = "light"
-primaryColor = "#0B6EFD"
+__pycache__/
+*.pyc
+data/*.db
+.env

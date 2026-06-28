@@ -1,93 +1,21 @@
 
-from datetime import date
-import pandas as pd
 import streamlit as st
+from core.database import get_bets, metrics
 
-from core.database import get_leagues, get_teams, add_bet
-from core.team_strength import estimate_lambdas
-from core.markets import calc_markets
-from core.value import compare_odds
-from services.seed import seed_sample_data
-
-st.title("🔍 Scanner de Valor")
-
-leagues = get_leagues()
-league_options = ["Série B"] + [x for x in leagues["name"].tolist() if x != "Série B"]
-league = st.selectbox("Liga", league_options)
-
-teams = get_teams(league)["name"].tolist()
-if not teams:
-    st.warning("Nenhum time cadastrado. Clique abaixo para carregar dados de exemplo.")
-    if st.button("Carregar dados de exemplo"):
-        seed_sample_data()
-        st.rerun()
-    teams = ["Vila Nova", "Novorizontino"]
-
-c1,c2,c3,c4 = st.columns(4)
-home = c1.selectbox("Mandante", teams, index=0)
-away = c2.selectbox("Visitante", teams, index=min(1, len(teams)-1))
-bankroll = c3.number_input("Banca R$", 100.0, 1000000.0, 1000.0, 100.0)
-min_edge = c4.number_input("Edge mínimo", 0.0, 0.50, 0.06, 0.01)
-
-st.subheader("Ajustes de contexto")
-a1,a2,a3 = st.columns(3)
-adj_home = a1.number_input("Ajuste mandante em gols", -1.0, 1.0, 0.0, 0.05)
-adj_away = a2.number_input("Ajuste visitante em gols", -1.0, 1.0, 0.0, 0.05)
-confidence = a3.slider("Confiança do contexto", 0, 100, 75)
-
-lh, la, hs, aw, warning = estimate_lambdas(home, away, league, adj_home, adj_away)
-if warning:
-    st.warning(warning)
-
-m1,m2,m3,m4,m5,m6 = st.columns(6)
-m1.metric("Lambda Casa", f"{lh:.2f}")
-m2.metric("Lambda Fora", f"{la:.2f}")
-m3.metric("Jogos Casa", hs["games"])
-m4.metric("GM Casa", f'{hs["gf"]:.2f}')
-m5.metric("Jogos Fora", aw["games"])
-m6.metric("GM Fora", f'{aw["gf"]:.2f}')
-
-markets = calc_markets(lh, la)
-
-st.subheader("Odds")
-main_markets = [
-    "BTTS Sim","BTTS Não",
-    "Over 1.5","Under 2.5","Over 2.5","Under 3.5",
-    "Casa ML","Empate","Fora ML","Casa DNB","Fora DNB",
-    "Casa AH -0.5","Casa AH +0","Fora AH +0.5","Fora AH +0"
-]
-rows = []
-cols = st.columns(5)
-for i, market in enumerate(main_markets):
-    with cols[i % 5]:
-        odd = st.number_input(market, 0.0, 50.0, 0.0, 0.01, key=f"odd_{market}")
-        if odd > 0:
-            rows.append({"bookmaker":"Manual", "market":market, "odd":odd})
-
-odds_df = pd.DataFrame(rows, columns=["bookmaker","market","odd"])
-radar = compare_odds(markets, odds_df, min_edge, bankroll, confidence)
-
-st.subheader("Radar")
-if radar.empty:
-    st.info("Digite pelo menos uma odd acima de 0.")
+st.title("📊 Dashboard")
+df = get_bets()
+if df.empty:
+    st.info("Sem apostas para dashboard.")
 else:
-    st.dataframe(
-        radar[["bookmaker","market","prob","fair_odd","odd","edge","ev","kelly","stake","confidence","grade","decision"]].style.format({
-            "prob":"{:.2%}", "fair_odd":"{:.2f}", "odd":"{:.2f}", "edge":"{:.2%}",
-            "ev":"{:.2%}", "kelly":"{:.2%}", "stake":"R$ {:.2f}", "confidence":"{:.0f}"
-        }),
-        use_container_width=True
-    )
-
-    st.subheader("Salvar aposta")
-    labels = [f'{r.bookmaker} | {r.market} | odd {r.odd}' for _, r in radar.iterrows()]
-    selected = st.selectbox("Entrada", labels)
-    row = radar.iloc[labels.index(selected)]
-    stake = st.number_input("Stake R$", 1.0, 100000.0, float(max(1, round(row.stake, 2))), 1.0)
-    note = st.text_input("Observação", "")
-    if st.button("Salvar no histórico"):
-        add_bet(str(date.today()), league, f"{home} x {away}", row.market, row.bookmaker, float(row.odd), float(row.fair_odd), float(row.prob), float(row.edge), float(row.ev), float(row.kelly), float(stake), float(row.confidence), row.grade, note)
-        st.success("Aposta salva.")
-
-with st.expander("Todas as probabilidades"):
-    st.dataframe(markets.style.format({"prob":"{:.2%}", "fair_odd":"{:.2f}"}), use_container_width=True)
+    m = metrics(df)
+    c1,c2,c3,c4 = st.columns(4)
+    c1.metric("ROI", f'{m["roi"]:.2%}')
+    c2.metric("Lucro", f'R$ {m["profit"]:.2f}')
+    c3.metric("Apostas", m["bets"])
+    c4.metric("% Acerto", f'{m["hit_rate"]:.2%}')
+    settled = df[df["result"].isin(["win","half_win","push","half_loss","loss"])]
+    if not settled.empty:
+        by_market = settled.groupby("market", as_index=False).agg(apostas=("id","count"), stake=("stake","sum"), lucro=("profit","sum"))
+        by_market["roi"] = by_market["lucro"] / by_market["stake"]
+        st.dataframe(by_market.style.format({"stake":"R$ {:.2f}", "lucro":"R$ {:.2f}", "roi":"{:.2%}"}), use_container_width=True)
+        st.bar_chart(by_market.set_index("market")["lucro"])

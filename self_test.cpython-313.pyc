@@ -1,0 +1,14 @@
+# Projeto Apostas V3 Modular Profissional
+
+Sistema modular com Scanner, Banco de Jogos, Histórico, Dashboard e Backtest.
+
+## Rodar
+
+```bash
+pip install -r requirements.txt
+streamlit run streamlit_app.py
+```
+
+## Streamlit Cloud
+
+Use `streamlit_app.py`.
