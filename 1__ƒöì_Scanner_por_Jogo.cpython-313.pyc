@@ -1,0 +1,28 @@
+import pandas as pd
+import streamlit as st
+from core.database import get_leagues, get_fixtures
+from core.team_strength import estimate_lambdas, explain_context
+from core.markets import calc_markets
+from core.value import compare_odds, context_confidence
+
+st.title('🔥 Scanner por Campeonato')
+leagues=get_leagues(); league_options=leagues.name.tolist() if not leagues.empty else ['Série B']
+league=st.selectbox('Liga',league_options)
+bankroll=st.number_input('Banca R$',100.0,1000000.0,1000.0,100.0)
+min_edge=st.number_input('Edge mínimo',0.0,0.5,0.06,0.01)
+default_odd=st.number_input('Odd simulada para ranking',1.01,10.0,1.90,0.01)
+target_market=st.selectbox('Mercado alvo',['BTTS Sim','Over 1.5','Over 2.5','Casa DNB','Fora DNB'])
+fixtures=get_fixtures(league)
+if fixtures.empty: st.info('Cadastre jogos futuros em Banco de Jogos ou importe CSV.')
+else:
+    rows=[]
+    for _,f in fixtures.iterrows():
+        lh,la,hs,aw,warning=estimate_lambdas(f.home_team,f.away_team,f.league)
+        markets=calc_markets(lh,la); confidence=context_confidence(hs,aw,75); explanation=explain_context(hs,aw,lh,la)
+        odds=pd.DataFrame([{'bookmaker':'Simulada','market':target_market,'odd':default_odd}])
+        radar=compare_odds(markets,odds,min_edge,bankroll,confidence,explanation)
+        if not radar.empty:
+            r=radar.iloc[0]
+            rows.append({'data':f.fixture_date,'jogo':f'{f.home_team} x {f.away_team}','mercado':r.market,'prob':r.prob,'odd_justa':r.fair_odd,'odd':r.odd,'edge':r.edge,'ev':r.ev,'confiança':r.confidence,'decisão':r.decision,'explicação':r.explanation})
+    out=pd.DataFrame(rows)
+    st.dataframe(out.style.format({'prob':'{:.2%}','odd_justa':'{:.2f}','odd':'{:.2f}','edge':'{:.2%}','ev':'{:.2%}','confiança':'{:.0f}'}),use_container_width=True)
